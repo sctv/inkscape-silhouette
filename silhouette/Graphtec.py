@@ -17,6 +17,7 @@
 # 2015-06-06  refactored plot_cmds() from plot().
 # 2016-05-16  no reset per default, this helps usbip.
 # 2016-05-21  detect python-usb < 1.0 and give instructions.
+# 2017-04-20  Adding Cameo3 USB IDs
 #
 
 from __future__ import print_function
@@ -52,7 +53,11 @@ try:
       usb_vi_str = str(usb.version_info)
     except AttributeError:
       usb_vi = 0
+      if sys_platform.startswith('win'):
+        usb_vi = 1
+        pass # windows does not seem to detect the usb.version , gives attribute error. Other tests of pyusb work, pyusb is installed.
       usb_vi_str = 'unknown'
+
 
     if usb_vi < 1:
       print("Your python usb module appears to be "+usb_vi_str+" -- We need version 1.x", file=sys.stderr)
@@ -117,6 +122,8 @@ PRODUCT_ID_SILHOUETTE_PORTRAIT = 0x1123
 DEVICE = [
  { 'vendor_id': 0x0b4d, 'product_id': 0x1123, 'name': 'Silhouette Portrait',
    'width_mm':  203, 'length_mm': 3000, 'regmark': True },
+ { 'vendor_id': 0x0b4d, 'product_id': 0x1132, 'name': 'Silhouette Portrait2',
+   'width_mm':  203, 'length_mm': 3000, 'regmark': True },
  { 'vendor_id': 0x0b4d, 'product_id': 0x1121, 'name': 'Silhouette Cameo',
    # margin_top_mm is just for safety when moving backwards with thin media
    # margin_left_mm is a physical limit, but is relative to width_mm!
@@ -125,6 +132,10 @@ DEVICE = [
    # margin_top_mm is just for safety when moving backwards with thin media
    # margin_left_mm is a physical limit, but is relative to width_mm!
    'width_mm':  304, 'length_mm': 3000, 'margin_left_mm':9.0, 'margin_top_mm':1.0, 'regmark': True },
+ { 'vendor_id': 0x0b4d, 'product_id': 0x112f, 'name': 'Silhouette Cameo3',
+   # margin_top_mm is just for safety when moving backwards with thin media
+   # margin_left_mm is a physical limit, but is relative to width_mm!
+   'width_mm':  304, 'length_mm': 3000, 'margin_left_mm':5, 'margin_top_mm':15.5, 'regmark': True },
  { 'vendor_id': 0x0b4d, 'product_id': 0x110a, 'name': 'Craft Robo CC200-20',
    'width_mm':  200, 'length_mm': 1000, 'regmark': True },
  { 'vendor_id': 0x0b4d, 'product_id': 0x111a, 'name': 'Craft Robo CC300-20' },
@@ -386,6 +397,8 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
       raise ValueError('read failed: none')
     if isinstance(data, str):
         return data
+    elif isinstance(data, bytearray):
+        return str(data)
     else:
         return data.tostring()
 
@@ -517,7 +530,7 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
     return resp[0:-2]   # chop of 0x03
 
 
-  def setup(s, media=132, speed=None, pressure=None, pen=None, trackenhancing=False, landscape=False, leftaligned=None):
+  def setup(s, media=132, speed=None, pressure=None, pen=None, trackenhancing=False, bladediameter=0.9, landscape=False, leftaligned=None):
     """media range is [100..300], default 132, "Print Paper Light Weight"
        speed range is [1..10], default None, from paper (132 -> 10)
        pressure range is [1..33], default None, from paper (132 -> 5)
@@ -569,13 +582,16 @@ Alternatively, you can add yourself to group 'lp' and logout/login.""" % (self.h
       print("Loaded media is expected right-aligned.", file=s.log)
 
     # robocut/Plotter.cpp:393 says:
-    # // I think this sets the distance from the position of the plotter
-    # // head to the actual cutting point, maybe in 0.1 mms (todo: Measure blade).
-    # // It is 0 for the pen, 18 for cutting.
-    # // C possible stands for curvature. Not that any of the other letters make sense...
-    cutter = 18
-    if pen: cutter = 0
-    s.write("FC%d\x03" % cutter)
+    # It is 0 for the pen, 18 for cutting. Default diameter of a blade is 0.9mm
+    # C possible stands for curvature. Not that any of the other letters make sense...
+    # C possible stands for circle.
+    # This value is the circle diameter which is exectuted on direction changes on corners to adjust the blade.
+    # Seems to be limited to 46 or 47. Values above does keep the last setting on the device.
+    if pen:
+      circle = 0
+    else:
+      circle = bladediameter * 20
+    s.write("FC%d\x03" % circle)
 
     if trackenhancing is not None:
       if trackenhancing:

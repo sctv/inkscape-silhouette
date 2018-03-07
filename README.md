@@ -29,15 +29,11 @@ Other Debian based Linux
 * Copy the the folder silhouette and the two files sendto_silhouette.inx and 
 sendto_silhouette.py to ~/.config/inkscape/extensions/ or (if you have permissions)  /usr/share/inkscape/extensions/
 
-* sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/jnweiger:/fablab/xUbuntu_14.04/ /' >> /etc/apt/sources.list.d/python-usb.list"
-* wget http://download.opensuse.org/repositories/home:jnweiger:fablab/xUbuntu_14.10/Release.key -O - | sudo apt-key add -
-* sudo apt-get update
 * sudo apt-get install python-usb
 * restart inkscape, check the menu entry Extensions -> Export -> Send to Silhouette
 
 
 openSUSE:
-* An automatic build hook updates the rpm package at https://build.opensuse.org/package/show/home:jnweiger:fablabnbg/inkscape-silhouette
 
 * ~/.config/inkscape/extensions/ or
 * /usr/share/inkscape/extensions/
@@ -58,13 +54,14 @@ Mac OS X
 * Install the extension:
   * sudo ./install_osx.py
 
-Windows (untested): 
+Windows (untested): (TESTING by @sctv)
 * Download and install the free test version of **winzip** from http://www.winzip.com
 * Download https://github.com/jnweiger/inkscape-silhouette/archive/master.zip
 * Navigate to your Downloads folder and double-click on **inkscape-silhouette-master.zip**
 * Click open the **inkscape-silhouette-master** folder.
 * Select the following three items (with Ctrl-Click): **silhouette**, **sendto_silhouette.inx**, and **sendto_silhouette.py**
 * Extract to My Computer **C:\Program Files\Inkscape\share\extensions**
+* (Extensions may be here if the obove isn't a path **C:\Program Files (x86)\Inkscape\share\extensions**)
 * untested: if you have a Silhouette Studio CD, install the device driver. Then your Silhouette Cameo may show up as a printer device and the extension could now work. If not, installing pywinusb might help.
 * The following tips are for a Windows-7 64-bit machine:
  * Download and install http://sourceforge.net/projects/libusb-win32/files/libusb-win32-releases/ 
@@ -75,11 +72,24 @@ Windows (untested):
    x86\libusb0.sys: x86 32-bit driver.<br>
    Installs to Windows\system32\drivers\libusb0.sys
  * When you get a number of options, chose the printer option.
+ -----
+ Alternative libusb instalation
+  use Zadig http://zadig.akeo.ie/
+  download http://zadig.akeo.ie/downloads/zadig-2.3.exe
+  goto menu options¦List all devices
+  look for USB Printing Support in the dropdown list 
+  manufacturer ID is 0B4D Graftek America
+  select driver libusb0 (v1.2.6.0)  
+  click install driver
 * If you don't have python installed, then install the latest stable version. 
 * Download and unpack http://sourceforge.net/projects/pyusb/ 
 * cd ..\pyusb-1.0.0b1; python.exe setup.py install
-* Restart inkscape
 * An error message 'ImportError: No module named usb.core' means you are close, but pyusb was not correctly installed. Please check, if there are multiple python installations in your system, e.g. one that came with inkscape.
+* find the path to the python.exe in the inkscape directory (on a 64 bit win7 it may be "C:\Program Files (x86)\Inkscape\python\python.exe" 
+cd to the pyusb directory again and run it. 
+* Restart inkscape
+
+
 
 
 Troubleshooting
@@ -92,6 +102,13 @@ Troubleshooting
  >>> 
 
 If this reports no usb.core.Device to you, please help troubleshoot.
+
+python
+>>> import usb.core 
+>>> usb.version_info[0]
+
+This fails on win32/64 with 'module has no attribute 'version info' which then causes Graphtec.py to error even though usb.core is installed.
+
 
 Using of registration marks
 ---------------------------

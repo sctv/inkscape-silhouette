@@ -80,6 +80,8 @@
 #                         Support document unit inches. https://github.com/fablabnbg/inkscape-silhouette/issues/19
 # 2016-12-18, jw, v1.19 -- support for dashed lines added. Thanks to mehtank
 #			  https://github.com/fablabnbg/inkscape-silhouette/pull/33
+#                         Added new cutting strategy "Minimized Traveling"
+#                         Added parameter for blade diameter
 
 __version__ = '1.19'	# Keep in sync with sendto_silhouette.inx ca line 79
 __author__ = 'Juergen Weigert <juewei@fabmail.org> and contributors'
@@ -122,9 +124,12 @@ except:
 from silhouette.Graphtec import SilhouetteCameo
 from silhouette.Strategy import MatFree
 from silhouette.convert2dashes import splitPath
+import silhouette.StrategyMinTraveling
 
 N_PAGE_WIDTH = 3200
 N_PAGE_HEIGHT = 800
+
+IDENTITY_TRANSFORM = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
 
 
 def px2mm(px):
@@ -266,12 +271,16 @@ class SendtoSilhouette(inkex.Effect):
     self.OptionParser.add_option('-b', '--bbox', '--bbox-only', '--bbox_only',
           action = 'store', dest = 'bboxonly', type = 'inkbool', default = False,
           help='draft the objects bounding box instead of the objects')
+    self.OptionParser.add_option('-c', '--bladediameter',
+          action = 'store', dest = 'bladediameter', type = 'float', default = 0.9,
+          help="[0..2.3] diameter of the used blade [mm], default = 0.9")
     self.OptionParser.add_option('--dummy',
           action = 'store', dest = 'dummy', type = 'inkbool', default = False,
           help="Dump raw data to "+self.dumpname+" instead of cutting.")
-    self.OptionParser.add_option('--mat-free', '--mat_free',
-          action = 'store', dest = 'mat_free', type = 'inkbool', default = False,
-          help="Optimize movements for cutting without a cutting mat.")
+    self.OptionParser.add_option('-g', '--strategy',
+          action = 'store', dest = 'strategy', default = 'mintravel',
+          choices=('mintravel','mintravelfull','matfree','zorder' ),
+          help="Cutting Strategy: mintravel, mintravelfull, matfree or zorder")
     self.OptionParser.add_option('-m', '--media', '--media-id', '--media_id',
           action = 'store', dest = 'media', default = '132',
           choices=('100','101','102','106','111','112','113',
@@ -447,8 +456,8 @@ class SendtoSilhouette(inkex.Effect):
 
 
   def recursivelyTraverseSvg( self, aNodeList,
-                        matCurrent=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-                        parent_visibility='visible' ):
+                        parent_visibility='visible',
+                        extra_transform=IDENTITY_TRANSFORM ):
                 """
                 Recursively traverse the svg file to plot out all of the
                 paths.  The function keeps track of the composite transformation
@@ -470,8 +479,10 @@ class SendtoSilhouette(inkex.Effect):
                         if v == 'hidden' or v == 'collapse':
                                 pass
 
-                        # first apply the current matrix transform to this node's tranform
-                        matNew = composeTransform( matCurrent, parseTransform( node.get( "transform" ) ) )
+                        # calculate this object's transform
+                        transform = composeParents(node, IDENTITY_TRANSFORM)
+                        transform = composeTransform(self.docTransform, transform)
+                        transform = composeTransform(extra_transform, transform)
 
                         if node.tag == inkex.addNS( 'g', 'svg' ) or node.tag == 'g':
 
@@ -485,7 +496,7 @@ class SendtoSilhouette(inkex.Effect):
                                         if not self.allLayers:
                                                 # inkex.errormsg('Plotting layer named: ' + node.get(inkex.addNS('label', 'inkscape')))
                                                 self.DoWePlotLayer( node.get( inkex.addNS( 'label', 'inkscape' ) ) )
-                                self.recursivelyTraverseSvg( node, matNew, parent_visibility=v )
+                                self.recursivelyTraverseSvg( node, parent_visibility=v )
 
                         elif node.tag == inkex.addNS( 'use', 'svg' ) or node.tag == 'use':
 
@@ -512,11 +523,9 @@ class SendtoSilhouette(inkex.Effect):
                                                 y = float( node.get( 'y', '0' ) )
                                                 # Note: the transform has already been applied
                                                 if ( x != 0 ) or (y != 0 ):
-                                                        matNew2 = composeTransform( matNew, parseTransform( 'translate(%f,%f)' % (x,y) ) )
-                                                else:
-                                                        matNew2 = matNew
+                                                        transform = composeTransform( transform, parseTransform( 'translate(%f,%f)' % (x,y) ) )
                                                 v = node.get( 'visibility', v )
-                                                self.recursivelyTraverseSvg( refnode, matNew2, parent_visibility=v )
+                                                self.recursivelyTraverseSvg( refnode, parent_visibility=v, extra_transform=transform )
                                         else:
                                                 pass
                                 else:
@@ -539,7 +548,7 @@ class SendtoSilhouette(inkex.Effect):
                                 if self.resumeMode and ( self.pathcount < self.svgLastPath ):
                                         pass
                                 else:
-                                        self.plotPath( node, matNew )
+                                        self.plotPath( node, transform )
                                         if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                 self.svgLastPath += 1
                                                 self.svgLastPathNC = self.nodeCount
@@ -587,7 +596,7 @@ class SendtoSilhouette(inkex.Effect):
                                         a.append( [' l ', [-w, 0]] )
                                         a.append( [' Z', []] )
                                         newpath.set( 'd', simplepath.formatPath( a ) )
-                                        self.plotPath( newpath, matNew )
+                                        self.plotPath( newpath, transform )
 
                         elif node.tag == inkex.addNS( 'line', 'svg' ) or node.tag == 'line':
 
@@ -627,7 +636,7 @@ class SendtoSilhouette(inkex.Effect):
                                         a.append( ['M ', [x1, y1]] )
                                         a.append( [' L ', [x2, y2]] )
                                         newpath.set( 'd', simplepath.formatPath( a ) )
-                                        self.plotPath( newpath, matNew )
+                                        self.plotPath( newpath, transform )
                                         if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                 self.svgLastPath += 1
                                                 self.svgLastPathNC = self.nodeCount
@@ -678,7 +687,7 @@ class SendtoSilhouette(inkex.Effect):
                                         t = node.get( 'transform' )
                                         if t:
                                                 newpath.set( 'transform', t )
-                                        self.plotPath( newpath, matNew )
+                                        self.plotPath( newpath, transform )
                                         if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                 self.svgLastPath += 1
                                                 self.svgLastPathNC = self.nodeCount
@@ -730,7 +739,7 @@ class SendtoSilhouette(inkex.Effect):
                                         t = node.get( 'transform' )
                                         if t:
                                                 newpath.set( 'transform', t )
-                                        self.plotPath( newpath, matNew )
+                                        self.plotPath( newpath, transform )
                                         if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                 self.svgLastPath += 1
                                                 self.svgLastPathNC = self.nodeCount
@@ -794,7 +803,7 @@ class SendtoSilhouette(inkex.Effect):
                                                 t = node.get( 'transform' )
                                                 if t:
                                                         newpath.set( 'transform', t )
-                                                self.plotPath( newpath, matNew )
+                                                self.plotPath( newpath, transform )
                                                 if ( not self.bStopped ):       #an "index" for resuming plots quickly-- record last complete path
                                                         self.svgLastPath += 1
                                                         self.svgLastPathNC = self.nodeCount
@@ -978,19 +987,24 @@ class SendtoSilhouette(inkex.Effect):
     if self.options.ids:
       # Traverse the selected objects
       for id in self.options.ids:
-        self.recursivelyTraverseSvg( [self.selected[id]], self.docTransform )
+        self.recursivelyTraverseSvg( [self.selected[id]] )
     else:
       # Traverse the entire document
-      self.recursivelyTraverseSvg( self.document.getroot(), self.docTransform )
+      self.recursivelyTraverseSvg( self.document.getroot() )
 
     self.pen=None
     if self.options.tool == 'pen': self.pen=True
     if self.options.tool == 'cut': self.pen=False
 
-    if self.options.mat_free:
+    if self.options.strategy == 'matfree':
       mf = MatFree('default', scale=px2mm(1.0), pen=self.pen)
       mf.verbose = 0    # inkscape crashes whenever something appears in stdout.
       self.paths = mf.apply(self.paths)
+    elif self.options.strategy == 'mintravel':
+      self.paths = silhouette.StrategyMinTraveling.sort(self.paths)
+    elif self.options.strategy == 'mintravelfull':
+      self.paths = silhouette.StrategyMinTraveling.sort(self.paths, True)
+    # in case of zorder do no reorder
 
     # print >>self.tty, self.paths
     cut = []
@@ -998,7 +1012,7 @@ class SendtoSilhouette(inkex.Effect):
     for px_path in self.paths:
       mm_path = []
       for pt in px_path:
-        if self.options.mat_free:
+        if self.options.strategy == 'matfree':
           mm_path.append((pt[0], pt[1]))        # MatFree.load() did the scaling already.
         else:
           mm_path.append((px2mm(pt[0]), px2mm(pt[1])))
@@ -1060,6 +1074,7 @@ class SendtoSilhouette(inkex.Effect):
     if self.options.pressure == 0:     self.options.pressure = None
     if self.options.speed == 0:        self.options.speed = None
     dev.setup(media=int(self.options.media,10), pen=self.pen,
+      bladediameter=self.options.bladediameter,
       pressure=self.options.pressure, speed=self.options.speed)
 
     if self.options.autocrop:
